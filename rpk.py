@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 import os
 
 try:
@@ -33,6 +34,35 @@ def run_experiment(g_min, g_max, g_step, n_min, n_max, n_step, coefs):
     return pd.DataFrame(data, columns=["G", "N", "Psi"])
 
 
+def plot_results(g_values, n_values, coefs):
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
+
+    # Зависимость Ψ от G при разных N
+    n_vals_to_plot = [n_values[0], n_values[len(n_values)//2], n_values[-1]]
+    for n in n_vals_to_plot:
+        psi_vals = [calculate_psi(g, n, coefs) for g in g_values]
+        ax1.plot(g_values, psi_vals, label=f'N={n}')
+    ax1.set_xlabel('Расход G (кг/ч)')
+    ax1.set_ylabel('Степень заполнения Ψ')
+    ax1.set_title('Зависимость Ψ от G')
+    ax1.legend()
+    ax1.grid(True)
+
+    # Зависимость Ψ от N при разных G
+    g_vals_to_plot = [g_values[0], g_values[len(g_values)//2], g_values[-1]]
+    for g in g_vals_to_plot:
+        psi_vals = [calculate_psi(g, n, coefs) for n in n_values]
+        ax2.plot(n_values, psi_vals, label=f'G={g}')
+    ax2.set_xlabel('Частота N (об/мин)')
+    ax2.set_ylabel('Степень заполнения Ψ')
+    ax2.set_title('Зависимость Ψ от N')
+    ax2.legend()
+    ax2.grid(True)
+
+    plt.tight_layout()
+    plt.show()
+
+
 def export_to_excel(df, filepath=f"{BASE_DIR}\\report_extruder.xlsx"):
     """Сохраняет DataFrame с результатами в Excel."""
     with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
@@ -42,11 +72,13 @@ def export_to_excel(df, filepath=f"{BASE_DIR}\\report_extruder.xlsx"):
 
 if __name__ == "__main__":
     print("Вычислительный эксперимент для Полистирола")
-    print("=" * 50)
     df = run_experiment(2, 10, 0.5, 40, 100, 5, COEFS_POLYSTYRENE)
-    print(df.to_string(index=False))
-    print(f"\nВсего точек: {len(df)}")
+
+    g_values = np.arange(2, 10 + 0.25, 0.5)
+    n_values = np.arange(40, 100 + 2.5, 5)
+    plot_results(g_values, n_values, COEFS_POLYSTYRENE)
+
     print("Сгенерировать excel отчет? Y/N")
 
-    if input() == 'Y':
+    if input()[0].upper() == 'Y':
         export_to_excel(df)
