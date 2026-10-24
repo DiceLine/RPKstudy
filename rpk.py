@@ -1,6 +1,12 @@
 import numpy as np
 import pandas as pd
+import os
 
+try:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+except NameError:
+    # Если код запускается не как файл (например, в Jupyter), используем текущую директорию
+    BASE_DIR = os.getcwd()
 
 def calculate_psi(G, N, coefs):
     a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10 = coefs
@@ -27,9 +33,20 @@ def run_experiment(g_min, g_max, g_step, n_min, n_max, n_step, coefs):
     return pd.DataFrame(data, columns=["G", "N", "Psi"])
 
 
+def export_to_excel(df, filepath=f"{BASE_DIR}\\report_extruder.xlsx"):
+    """Сохраняет DataFrame с результатами в Excel."""
+    with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='Результаты', index=False)
+    print(f"Отчёт сохранён: {filepath}")
+
+
 if __name__ == "__main__":
     print("Вычислительный эксперимент для Полистирола")
     print("=" * 50)
     df = run_experiment(2, 10, 0.5, 40, 100, 5, COEFS_POLYSTYRENE)
     print(df.to_string(index=False))
     print(f"\nВсего точек: {len(df)}")
+    print("Сгенерировать excel отчет? Y/N")
+
+    if input() == 'Y':
+        export_to_excel(df)
