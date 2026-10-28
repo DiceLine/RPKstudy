@@ -1,6 +1,9 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import os
 
 try:
@@ -15,10 +18,75 @@ def calculate_psi(G, N, coefs):
             a6*N + a7*N**2 + a8*N**3 + a9*N**4 + a10*N**5)
 
 
+USERS = {
+    "admin": {"password": "admin", "role": "admin"},
+    "researcher": {"password": "researcher", "role": "researcher"},
+}
+
+
 COEFS_POLYSTYRENE = (
     0.765, 0.030, -0.003, 1.88e-5, 3.09e-5, -1.47e-6,
     8.14e-4, 7.04e-6, 7.27e-8, -7.45e-10, -4e-11
 )
+
+
+class LoginWindow:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Авторизация")
+        self.root.geometry("300x200")
+
+        ttk.Label(root, text="Логин:").pack(pady=5)
+        self.username_entry = ttk.Entry(root)
+        self.username_entry.pack(pady=5)
+
+        ttk.Label(root, text="Пароль:").pack(pady=5)
+        self.password_entry = ttk.Entry(root, show="*")
+        self.password_entry.pack(pady=5)
+
+        ttk.Button(root, text="Войти", command=self.login).pack(pady=15)
+
+    def login(self):
+        username = self.username_entry.get()
+        password = self.password_entry.get()
+        user = USERS.get(username)
+        if user and user["password"] == password:
+            self.root.withdraw()
+            if user["role"] == "admin":
+                AdminWindow(tk.Toplevel(), self.root)
+            else:
+                ResearcherWindow(tk.Toplevel(), self.root)
+        else:
+            messagebox.showerror("Ошибка", "Неверный логин или пароль")
+
+
+class AdminWindow:
+    def __init__(self, root, login_root):
+        self.root = root
+        self.login_root = login_root
+        self.root.title("Панель администратора")
+        self.root.geometry("400x300")
+        ttk.Label(root, text="Раздел в разработке...").pack(pady=50)
+        ttk.Button(root, text="Выйти", command=self.logout).pack()
+
+    def logout(self):
+        self.root.destroy()
+        self.login_root.deiconify()
+
+
+class ResearcherWindow:
+    def __init__(self, root, login_root):
+        self.root = root
+        self.login_root = login_root
+        self.root.title("Исследовательский комплекс")
+        self.root.geometry("500x400")
+        ttk.Label(root, text="Параметры моделирования").pack(pady=10)
+        ttk.Button(root, text="Запустить (заглушка)").pack(pady=10)
+        ttk.Button(root, text="Выйти", command=self.logout).pack(pady=10)
+
+    def logout(self):
+        self.root.destroy()
+        self.login_root.deiconify()
 
 
 def run_experiment(g_min, g_max, g_step, n_min, n_max, n_step, coefs):
@@ -82,3 +150,7 @@ if __name__ == "__main__":
 
     if input()[0].upper() == 'Y':
         export_to_excel(df)
+
+    root = tk.Tk()
+    app = LoginWindow(root)
+    root.mainloop()
