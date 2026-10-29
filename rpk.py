@@ -1,21 +1,26 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
-import numpy as np
+from tkinter import ttk, messagebox, filedialog
+import sqlite3
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import sqlite3
+import time
+import tracemalloc
 import os
 
+# --- Константы и настройки ---
+# Определяем папку, где находится сам файл кода (main.py)
 try:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 except NameError:
     # Если код запускается не как файл (например, в Jupyter), используем текущую директорию
     BASE_DIR = os.getcwd()
 
+# Путь к файлу БД формируется относительно папки со скриптом
 DB_NAME = os.path.join(BASE_DIR, 'extruder_app.db')
 
-
+# --- Модуль работы с базой данных ---
 class Database:
     def __init__(self):
         self.conn = sqlite3.connect(DB_NAME)
@@ -133,6 +138,7 @@ class Database:
         return True
 
 
+# --- Модуль авторизации ---
 class LoginWindow:
     def __init__(self, root, db):
         self.root = root
@@ -166,6 +172,7 @@ class LoginWindow:
             messagebox.showerror("Ошибка", "Неверный логин или пароль")
 
 
+# --- Модуль администратора ---
 class AdminWindow:
     def __init__(self, root, db, login_root):
         self.root = root
@@ -182,7 +189,7 @@ class AdminWindow:
         self.create_all_data_tab()
 
         ttk.Button(root, text="Выйти", command=self.logout).pack(pady=5)
-    
+
     def create_users_tab(self):
         frame = ttk.Frame(self.notebook)
         self.notebook.add(frame, text="Пользователи")
@@ -391,6 +398,7 @@ class AdminWindow:
         self.login_root.deiconify()
 
 
+# --- Модуль исследователя ---
 class ResearcherWindow:
     def __init__(self, root, db, login_root):
         self.root = root
@@ -453,10 +461,19 @@ class ResearcherWindow:
         self.notebook.add(self.graph_frame, text="Графики")
 
         # Вкладка: Производительность
+        self.perf_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.perf_frame, text="Экономичность")
+        self.perf_text = tk.Text(self.perf_frame, height=10, width=50)
+        self.perf_text.pack(padx=10, pady=10)
 
         # Вкладка: Экспорт
+        self.export_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.export_frame, text="Экспорт")
+        ttk.Button(self.export_frame, text="Сохранить отчет в Excel", command=self.export_excel).pack(pady=20)
 
         self.df_result = None
+        # Хранилище метрик производительности
+        self.perf_metrics = {}
 
     def validate_inputs(self):
         try:
@@ -482,7 +499,7 @@ class ResearcherWindow:
     def calculate_psi(self, G, N, coefs):
         a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10 = coefs
         return (a0 + a1*G + a2*G**2 + a3*G**3 + a4*G**4 + a5*G**5 +
-                a6*N + a7*N**2 + a8*N**3 + a9*N**4 + a10*N**5)
+                a6*N + a7*N**2 + a8*N**3 + a9*N**4 + a10*N**5) # 28
 
     def run_simulation(self):
         params = self.validate_inputs()
@@ -494,6 +511,10 @@ class ResearcherWindow:
         poly_id = self.polymers[idx][0]
         coefs = self.db.get_coefficients(poly_id)
 
+        tracemalloc.start()
+        start_time = time.time()
+        ops_count = 0
+
         g_values = np.arange(g_min, g_max + g_step/2, g_step)
         n_values = np.arange(n_min, n_max + n_step/2, n_step)
 
@@ -502,11 +523,25 @@ class ResearcherWindow:
             for N in n_values:
                 psi = self.calculate_psi(G, N, coefs)
                 data.append((round(G, 2), round(N, 2), round(psi, 4)))
+                ops_count += 32
+
+        end_time = time.time()
+        current, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
 
         self.df_result = pd.DataFrame(data, columns=["G", "N", "Psi"])
 
+        self.perf_metrics = {
+            "Время вычисления (сек)": round(end_time - start_time, 6),
+            "Пиковое использование памяти (КБ)": round(peak / 1024, 4),
+            "Количество точек моделирования": len(data),
+            "Общее количество арифметических операций": ops_count
+        }
+        # ----------------------------------------------------
+
         self.update_table()
         self.update_graphs(g_values, n_values, coefs)
+        self.update_performance(end_time - start_time, peak, ops_count, len(data))
 
     def update_table(self):
         for i in self.tree.get_children():
@@ -545,16 +580,111 @@ class ResearcherWindow:
         canvas.draw()
         canvas.get_tk_widget().pack(fill='both', expand=True)
 
+    def update_performance(self, time_taken, memory_used, ops, points):
+        self.perf_text.delete(1.0, tk.END)
+        self.perf_text.insert(tk.END, "Оценка показателей экономичности:\n\n")
+        self.perf_text.insert(tk.END, f"Время вычисления: {time_taken:.4f} сек.\n")
+        self.perf_text.insert(tk.END, f"Пиковое использование памяти: {memory_used / 1024:.2f} КБ\n")
+        self.perf_text.insert(tk.END, f"Количество точек моделирования: {points}\n")
+        self.perf_text.insert(tk.END, f"Общее количество арифметических операций: {ops}\n")
+
+    def export_excel(self):
+        if self.df_result is None:
+            messagebox.showwarning("Внимание", "Сначала запустите моделирование!")
+            return
+
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".xlsx",
+            filetypes=[("Excel files", "*.xlsx")],
+            initialfile="report_extruder.xlsx",
+            initialdir=BASE_DIR,
+            title="Сохранить отчет как..."
+        )
+
+        if not filepath:
+            return
+
+        try:
+            idx = self.poly_combo.current()
+            poly_name = self.polymers[idx][1] if idx != -1 else "Неизвестно"
+
+            with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
+
+                # --- Лист 1: Параметры эксперимента (входные данные) ---
+                info_data = {
+                    "Параметр": [
+                        "Дата и время эксперимента",
+                        "Тип полимера",
+                        "G min (кг/ч)",
+                        "G max (кг/ч)",
+                        "Шаг ΔG (кг/ч)",
+                        "N min (об/мин)",
+                        "N max (об/мин)",
+                        "Шаг ΔN (об/мин)",
+                        "Количество точек по G",
+                        "Количество точек по N",
+                        "Общее число экспериментов"
+                    ],
+                    "Значение": [
+                        time.strftime("%Y-%m-%d %H:%M:%S"),
+                        poly_name,
+                        self.g_min.get(),
+                        self.g_max.get(),
+                        self.g_step.get(),
+                        self.n_min.get(),
+                        self.n_max.get(),
+                        self.n_step.get(),
+                        len(np.arange(float(self.g_min.get()),
+                                       float(self.g_max.get()) + float(self.g_step.get())/2,
+                                       float(self.g_step.get()))),
+                        len(np.arange(float(self.n_min.get()),
+                                       float(self.n_max.get()) + float(self.n_step.get())/2,
+                                       float(self.n_step.get()))),
+                        len(self.df_result)
+                    ]
+                }
+                pd.DataFrame(info_data).to_excel(writer, sheet_name='Параметры эксперимента', index=False)
+
+                # --- Лист 2: Данные эксперимента (результаты) ---
+                self.df_result.to_excel(writer, sheet_name='Данные эксперимента', index=False)
+
+                # --- Лист 3: Производительность программы ---
+                perf_data = {
+                    "Показатель": list(self.perf_metrics.keys()),
+                    "Значение": list(self.perf_metrics.values())
+                }
+                pd.DataFrame(perf_data).to_excel(writer, sheet_name='Производительность', index=False)
+
+                # --- Лист 4: Коэффициенты модели (для воспроизводимости) ---
+                coefs = self.db.get_coefficients(self.polymers[idx][0])
+                coef_data = {
+                    "Коэффициент": [f"a{i}" for i in range(11)],
+                    "Значение": list(coefs)
+                }
+                pd.DataFrame(coef_data).to_excel(writer, sheet_name='Коэффициенты модели', index=False)
+
+                # --- Красивое форматирование ширины колонок (опционально) ---
+                for sheet_name in writer.sheets:
+                    worksheet = writer.sheets[sheet_name]
+                    for column_cells in worksheet.columns:
+                        max_length = 0
+                        column_letter = column_cells[0].column_letter
+                        for cell in column_cells:
+                            try:
+                                if cell.value is not None and len(str(cell.value)) > max_length:
+                                    max_length = len(str(cell.value))
+                            except Exception:
+                                pass
+                        adjusted_width = min(max_length + 3, 60)
+                        worksheet.column_dimensions[column_letter].width = adjusted_width
+
+            messagebox.showinfo("Успех", f"Отчет успешно сохранен по пути:\n{filepath}")
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Не удалось сохранить файл: {e}")
+
     def logout(self):
         self.root.destroy()
         self.login_root.deiconify()
-
-
-def export_to_excel(df, filepath=f"{BASE_DIR}\\report_extruder.xlsx"):
-    """Сохраняет DataFrame с результатами в Excel."""
-    with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
-        df.to_excel(writer, sheet_name='Результаты', index=False)
-    print(f"Отчёт сохранён: {filepath}")
 
 
 if __name__ == "__main__":
