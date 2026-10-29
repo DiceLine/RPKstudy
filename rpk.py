@@ -498,8 +498,11 @@ class ResearcherWindow:
 
     def calculate_psi(self, G, N, coefs):
         a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10 = coefs
-        return (a0 + a1*G + a2*G**2 + a3*G**3 + a4*G**4 + a5*G**5 +
-                a6*N + a7*N**2 + a8*N**3 + a9*N**4 + a10*N**5) # 28
+
+        psi_G = a0 + G * (a1 + G * (a2 + G * (a3 + G * (a4 + G * a5))))
+        psi_N = N * (a6 + N * (a7 + N * (a8 + N * (a9 + N * a10))))
+
+        return psi_G + psi_N
 
     def run_simulation(self):
         params = self.validate_inputs()
@@ -523,7 +526,7 @@ class ResearcherWindow:
             for N in n_values:
                 psi = self.calculate_psi(G, N, coefs)
                 data.append((round(G, 2), round(N, 2), round(psi, 4)))
-                ops_count += 32
+                ops_count += 26
 
         end_time = time.time()
         current, peak = tracemalloc.get_traced_memory()
