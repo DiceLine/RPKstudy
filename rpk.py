@@ -3,22 +3,23 @@ from tkinter import ttk, messagebox, filedialog
 import sqlite3
 import pandas as pd
 import numpy as np
+import matplotlib
+matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import time
 import tracemalloc
 import os
 
 # --- Константы и настройки ---
-# Определяем папку, где находится сам файл кода (main.py)
 try:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 except NameError:
-    # Если код запускается не как файл (например, в Jupyter), используем текущую директорию
     BASE_DIR = os.getcwd()
 
-# Путь к файлу БД формируется относительно папки со скриптом
 DB_NAME = os.path.join(BASE_DIR, 'extruder_app.db')
+
 
 # --- Модуль работы с базой данных ---
 class Database:
@@ -53,28 +54,34 @@ class Database:
         self.conn.commit()
 
     def seed_data(self):
-        # Добавление пользователей по умолчанию
         try:
-            self.cursor.execute("INSERT INTO users (username, password, role) VALUES (?, ?, ?)", ('admin', 'admin', 'admin'))
-            self.cursor.execute("INSERT INTO users (username, password, role) VALUES (?, ?, ?)", ('researcher', 'researcher', 'researcher'))
+            self.cursor.execute(
+                "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
+                ('admin', 'admin', 'admin'))
+            self.cursor.execute(
+                "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
+                ('researcher', 'researcher', 'researcher'))
             self.conn.commit()
         except sqlite3.IntegrityError:
             pass
 
-        # Добавление Полистирола из задания
         self.cursor.execute("SELECT COUNT(*) FROM polymers")
         if self.cursor.fetchone()[0] == 0:
             self.cursor.execute("INSERT INTO polymers (name) VALUES (?)", ('Полистирол',))
             poly_id = self.cursor.lastrowid
-            coefs = (0.765, 0.030, -0.003, 1.88e-5, 3.09e-5, -1.47e-6, 8.14e-4, 7.04e-6, 7.27e-8, -7.45e-10, -4e-11)
+            coefs = (0.765, 0.030, -0.003, 1.88e-5, 3.09e-5, -1.47e-6,
+                     8.14e-4, 7.04e-6, 7.27e-8, -7.45e-10, -4e-11)
             self.cursor.execute('''
-                INSERT INTO coefficients (polymer_id, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10)
+                INSERT INTO coefficients
+                (polymer_id, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (poly_id,) + coefs)
             self.conn.commit()
 
     def verify_user(self, username, password):
-        self.cursor.execute("SELECT role FROM users WHERE username=? AND password=?", (username, password))
+        self.cursor.execute(
+            "SELECT role FROM users WHERE username=? AND password=?",
+            (username, password))
         result = self.cursor.fetchone()
         return result[0] if result else None
 
@@ -83,12 +90,15 @@ class Database:
         return self.cursor.fetchall()
 
     def get_coefficients(self, polymer_id):
-        self.cursor.execute("SELECT a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10 FROM coefficients WHERE polymer_id=?", (polymer_id,))
+        self.cursor.execute(
+            "SELECT a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10 "
+            "FROM coefficients WHERE polymer_id=?", (polymer_id,))
         return self.cursor.fetchone()
 
     def update_coefficients(self, polymer_id, coefs):
         self.cursor.execute('''
-            UPDATE coefficients SET a0=?, a1=?, a2=?, a3=?, a4=?, a5=?, a6=?, a7=?, a8=?, a9=?, a10=?
+            UPDATE coefficients SET a0=?, a1=?, a2=?, a3=?, a4=?, a5=?,
+                                    a6=?, a7=?, a8=?, a9=?, a10=?
             WHERE polymer_id=?
         ''', coefs + (polymer_id,))
         self.conn.commit()
@@ -98,7 +108,8 @@ class Database:
             self.cursor.execute("INSERT INTO polymers (name) VALUES (?)", (name,))
             poly_id = self.cursor.lastrowid
             self.cursor.execute('''
-                INSERT INTO coefficients (polymer_id, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10)
+                INSERT INTO coefficients
+                (polymer_id, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (poly_id,) + coefs)
             self.conn.commit()
@@ -113,7 +124,8 @@ class Database:
 
     def get_all_full_data(self):
         self.cursor.execute('''
-            SELECT p.id, p.name, c.a0, c.a1, c.a2, c.a3, c.a4, c.a5, c.a6, c.a7, c.a8, c.a9, c.a10
+            SELECT p.id, p.name, c.a0, c.a1, c.a2, c.a3, c.a4, c.a5,
+                               c.a6, c.a7, c.a8, c.a9, c.a10
             FROM polymers p
             JOIN coefficients c ON p.id = c.polymer_id
         ''')
@@ -125,14 +137,17 @@ class Database:
 
     def add_user(self, username, password, role):
         try:
-            self.cursor.execute("INSERT INTO users (username, password, role) VALUES (?, ?, ?)", (username, password, role))
+            self.cursor.execute(
+                "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
+                (username, password, role))
             self.conn.commit()
             return True
         except sqlite3.IntegrityError:
             return False
 
     def delete_user(self, username):
-        if username == 'admin': return False
+        if username == 'admin':
+            return False
         self.cursor.execute("DELETE FROM users WHERE username=?", (username,))
         self.conn.commit()
         return True
@@ -157,6 +172,16 @@ class LoginWindow:
 
         ttk.Button(root, text="Войти", command=self.login).pack(pady=15)
 
+        # Гарантированная очистка при закрытии окна авторизации через крестик
+        self.root.protocol("WM_DELETE_WINDOW", self.clean_exit)
+
+    def clean_exit(self):
+        try:
+            plt.close('all')
+        except Exception:
+            pass
+        self.root.destroy()
+
     def login(self):
         username = self.username_entry.get()
         password = self.password_entry.get()
@@ -164,10 +189,10 @@ class LoginWindow:
 
         if role == 'admin':
             self.root.withdraw()
-            AdminWindow(tk.Toplevel(), self.db, self.root)
+            AdminWindow(tk.Toplevel(self.root), self.db, self.root)
         elif role == 'researcher':
             self.root.withdraw()
-            ResearcherWindow(tk.Toplevel(), self.db, self.root)
+            ResearcherWindow(tk.Toplevel(self.root), self.db, self.root)
         else:
             messagebox.showerror("Ошибка", "Неверный логин или пароль")
 
@@ -180,6 +205,9 @@ class AdminWindow:
         self.login_root = login_root
         self.root.title("Панель администратора")
         self.root.geometry("800x600")
+
+        # При закрытии крестиком — корректно вернуть окно авторизации
+        self.root.protocol("WM_DELETE_WINDOW", self.logout)
 
         self.notebook = ttk.Notebook(root)
         self.notebook.pack(fill='both', expand=True, padx=10, pady=10)
@@ -246,7 +274,8 @@ class AdminWindow:
             if self.db.delete_user(username):
                 self.load_users()
             else:
-                messagebox.showwarning("Внимание", "Нельзя удалить администратора по умолчанию")
+                messagebox.showwarning("Внимание",
+                                       "Нельзя удалить администратора по умолчанию")
 
     def create_coefs_tab(self):
         frame = ttk.Frame(self.notebook)
@@ -272,15 +301,19 @@ class AdminWindow:
         btn_frame = ttk.Frame(frame)
         btn_frame.grid(row=13, column=0, columnspan=2, pady=15)
 
-        ttk.Button(btn_frame, text="Сохранить изменения", command=self.save_coefs).pack(side='left', padx=5)
-        ttk.Button(btn_frame, text="Добавить материал", command=self.add_polymer_dialog).pack(side='left', padx=5)
-        ttk.Button(btn_frame, text="Удалить материал", command=self.delete_polymer).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="Сохранить изменения",
+                   command=self.save_coefs).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="Добавить материал",
+                   command=self.add_polymer_dialog).pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="Удалить материал",
+                   command=self.delete_polymer).pack(side='left', padx=5)
 
         self.load_coefs()
 
     def load_coefs(self, event=None):
         idx = self.poly_combo.current()
-        if idx == -1: return
+        if idx == -1:
+            return
         poly_id = self.polymers[idx][0]
         coefs = self.db.get_coefficients(poly_id)
         if coefs:
@@ -290,7 +323,8 @@ class AdminWindow:
 
     def save_coefs(self):
         idx = self.poly_combo.current()
-        if idx == -1: return
+        if idx == -1:
+            return
         poly_id = self.polymers[idx][0]
         try:
             coefs = tuple(float(entry.get()) for entry in self.coef_entries)
@@ -335,7 +369,8 @@ class AdminWindow:
                     self.refresh_all_data()
                     dialog.destroy()
                 else:
-                    messagebox.showerror("Ошибка", "Материал с таким названием уже существует")
+                    messagebox.showerror("Ошибка",
+                                         "Материал с таким названием уже существует")
             except ValueError:
                 messagebox.showerror("Ошибка", "Коэффициенты должны быть числами")
 
@@ -343,11 +378,13 @@ class AdminWindow:
 
     def delete_polymer(self):
         idx = self.poly_combo.current()
-        if idx == -1: return
+        if idx == -1:
+            return
         poly_id = self.polymers[idx][0]
         name = self.polymers[idx][1]
 
-        if messagebox.askyesno("Подтверждение", f"Вы уверены, что хотите удалить материал '{name}'?"):
+        if messagebox.askyesno("Подтверждение",
+                               f"Вы уверены, что хотите удалить материал '{name}'?"):
             self.db.delete_polymer(poly_id)
             self.refresh_polymer_list()
             self.refresh_all_data()
@@ -376,13 +413,15 @@ class AdminWindow:
             self.all_data_tree.column(col, width=60, anchor='center')
         self.all_data_tree.column("Название", width=150, anchor='w')
 
-        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=self.all_data_tree.yview)
+        scrollbar = ttk.Scrollbar(frame, orient="vertical",
+                                  command=self.all_data_tree.yview)
         self.all_data_tree.configure(yscrollcommand=scrollbar.set)
 
         self.all_data_tree.pack(side='left', fill='both', expand=True, padx=5, pady=5)
         scrollbar.pack(side='right', fill='y', pady=5)
 
-        ttk.Button(frame, text="Обновить таблицу", command=self.refresh_all_data).pack(pady=5)
+        ttk.Button(frame, text="Обновить таблицу",
+                   command=self.refresh_all_data).pack(pady=5)
         self.refresh_all_data()
 
     def refresh_all_data(self):
@@ -407,6 +446,9 @@ class ResearcherWindow:
         self.root.title("Исследовательский комплекс")
         self.root.geometry("1100x700")
 
+        # При закрытии крестиком — корректно освободить ресурсы и вернуть логин
+        self.root.protocol("WM_DELETE_WINDOW", self.logout)
+
         # --- Левая панель: Ввод данных ---
         input_frame = ttk.LabelFrame(root, text="Параметры исследования")
         input_frame.pack(side='left', fill='y', padx=10, pady=10)
@@ -416,32 +458,47 @@ class ResearcherWindow:
         self.poly_combo.grid(row=0, column=1, pady=5)
         self.polymers = self.db.get_polymers()
         self.poly_combo['values'] = [p[1] for p in self.polymers]
-        if self.polymers: self.poly_combo.current(0)
+        if self.polymers:
+            self.poly_combo.current(0)
 
-        # Параметры G
-        ttk.Label(input_frame, text="--- Расход сырья (G) ---").grid(row=1, column=0, columnspan=2, pady=10)
+        ttk.Label(input_frame, text="--- Расход сырья (G) ---").grid(
+            row=1, column=0, columnspan=2, pady=10)
         ttk.Label(input_frame, text="G min (кг/ч):").grid(row=2, column=0, sticky='w')
-        self.g_min = ttk.Entry(input_frame); self.g_min.insert(0, "2"); self.g_min.grid(row=2, column=1)
+        self.g_min = ttk.Entry(input_frame)
+        self.g_min.insert(0, "2")
+        self.g_min.grid(row=2, column=1)
 
         ttk.Label(input_frame, text="G max (кг/ч):").grid(row=3, column=0, sticky='w')
-        self.g_max = ttk.Entry(input_frame); self.g_max.insert(0, "10"); self.g_max.grid(row=3, column=1)
+        self.g_max = ttk.Entry(input_frame)
+        self.g_max.insert(0, "10")
+        self.g_max.grid(row=3, column=1)
 
         ttk.Label(input_frame, text="Шаг ΔG:").grid(row=4, column=0, sticky='w')
-        self.g_step = ttk.Entry(input_frame); self.g_step.insert(0, "0.5"); self.g_step.grid(row=4, column=1)
+        self.g_step = ttk.Entry(input_frame)
+        self.g_step.insert(0, "0.5")
+        self.g_step.grid(row=4, column=1)
 
-        # Параметры N
-        ttk.Label(input_frame, text="--- Частота вращения (N) ---").grid(row=5, column=0, columnspan=2, pady=10)
+        ttk.Label(input_frame, text="--- Частота вращения (N) ---").grid(
+            row=5, column=0, columnspan=2, pady=10)
         ttk.Label(input_frame, text="N min (об/мин):").grid(row=6, column=0, sticky='w')
-        self.n_min = ttk.Entry(input_frame); self.n_min.insert(0, "40"); self.n_min.grid(row=6, column=1)
+        self.n_min = ttk.Entry(input_frame)
+        self.n_min.insert(0, "40")
+        self.n_min.grid(row=6, column=1)
 
         ttk.Label(input_frame, text="N max (об/мин):").grid(row=7, column=0, sticky='w')
-        self.n_max = ttk.Entry(input_frame); self.n_max.insert(0, "100"); self.n_max.grid(row=7, column=1)
+        self.n_max = ttk.Entry(input_frame)
+        self.n_max.insert(0, "100")
+        self.n_max.grid(row=7, column=1)
 
         ttk.Label(input_frame, text="Шаг ΔN:").grid(row=8, column=0, sticky='w')
-        self.n_step = ttk.Entry(input_frame); self.n_step.insert(0, "5"); self.n_step.grid(row=8, column=1)
+        self.n_step = ttk.Entry(input_frame)
+        self.n_step.insert(0, "5")
+        self.n_step.grid(row=8, column=1)
 
-        ttk.Button(input_frame, text="Запустить моделирование", command=self.run_simulation).grid(row=9, column=0, columnspan=2, pady=20)
-        ttk.Button(input_frame, text="Выйти", command=self.logout).grid(row=10, column=0, columnspan=2, pady=10)
+        ttk.Button(input_frame, text="Запустить моделирование",
+                   command=self.run_simulation).grid(row=9, column=0, columnspan=2, pady=20)
+        ttk.Button(input_frame, text="Выйти",
+                   command=self.logout).grid(row=10, column=0, columnspan=2, pady=10)
 
         # --- Правая панель: Результаты ---
         self.notebook = ttk.Notebook(root)
@@ -450,7 +507,8 @@ class ResearcherWindow:
         # Вкладка: Таблица
         self.table_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.table_frame, text="Таблица данных")
-        self.tree = ttk.Treeview(self.table_frame, columns=("G", "N", "Psi"), show='headings')
+        self.tree = ttk.Treeview(self.table_frame, columns=("G", "N", "Psi"),
+                                 show='headings')
         self.tree.heading("G", text="G (кг/ч)")
         self.tree.heading("N", text="N (об/мин)")
         self.tree.heading("Psi", text="Ψ (Степень заполнения)")
@@ -469,11 +527,14 @@ class ResearcherWindow:
         # Вкладка: Экспорт
         self.export_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.export_frame, text="Экспорт")
-        ttk.Button(self.export_frame, text="Сохранить отчет в Excel", command=self.export_excel).pack(pady=20)
+        ttk.Button(self.export_frame, text="Сохранить отчет в Excel",
+                   command=self.export_excel).pack(pady=20)
 
         self.df_result = None
-        # Хранилище метрик производительности
         self.perf_metrics = {}
+        # Ссылки на текущую фигуру и canvas — для явной очистки
+        self._current_figure = None
+        self._current_canvas = None
 
     def validate_inputs(self):
         try:
@@ -493,20 +554,21 @@ class ResearcherWindow:
 
             return g_min, g_max, g_step, n_min, n_max, n_step
         except ValueError as e:
-            messagebox.showerror("Ошибка ввода", f"Некорректные данные: {e}\nПроверьте, что введены числовые значения.")
+            messagebox.showerror("Ошибка ввода",
+                                 f"Некорректные данные: {e}\n"
+                                 f"Проверьте, что введены числовые значения.")
             return None
 
     def calculate_psi(self, G, N, coefs):
         a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10 = coefs
-
         psi_G = a0 + G * (a1 + G * (a2 + G * (a3 + G * (a4 + G * a5))))
         psi_N = N * (a6 + N * (a7 + N * (a8 + N * (a9 + N * a10))))
-
         return psi_G + psi_N
 
     def run_simulation(self):
         params = self.validate_inputs()
-        if not params: return
+        if not params:
+            return
 
         g_min, g_max, g_step, n_min, n_max, n_step = params
 
@@ -518,8 +580,8 @@ class ResearcherWindow:
         start_time = time.time()
         ops_count = 0
 
-        g_values = np.arange(g_min, g_max + g_step/2, g_step)
-        n_values = np.arange(n_min, n_max + n_step/2, n_step)
+        g_values = np.arange(g_min, g_max + g_step / 2, g_step)
+        n_values = np.arange(n_min, n_max + n_step / 2, n_step)
 
         data = []
         for G in g_values:
@@ -540,7 +602,6 @@ class ResearcherWindow:
             "Количество точек моделирования": len(data),
             "Общее количество арифметических операций": ops_count
         }
-        # ----------------------------------------------------
 
         self.update_table()
         self.update_graphs(g_values, n_values, coefs)
@@ -556,9 +617,17 @@ class ResearcherWindow:
         for widget in self.graph_frame.winfo_children():
             widget.destroy()
 
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
+        if self._current_canvas is not None:
+            self._current_canvas = None
+        if self._current_figure is not None:
+            self._current_figure.clear()
+            self._current_figure = None
 
-        n_vals_to_plot = [n_values[0], n_values[len(n_values)//2], n_values[-1]]
+        fig = Figure(figsize=(10, 5), dpi=100)
+        ax1 = fig.add_subplot(121)
+        ax2 = fig.add_subplot(122)
+
+        n_vals_to_plot = [n_values[0], n_values[len(n_values) // 2], n_values[-1]]
         for n in n_vals_to_plot:
             psi_vals = [self.calculate_psi(g, n, coefs) for g in g_values]
             ax1.plot(g_values, psi_vals, label=f'N={n}')
@@ -568,7 +637,7 @@ class ResearcherWindow:
         ax1.legend()
         ax1.grid(True)
 
-        g_vals_to_plot = [g_values[0], g_values[len(g_values)//2], g_values[-1]]
+        g_vals_to_plot = [g_values[0], g_values[len(g_values) // 2], g_values[-1]]
         for g in g_vals_to_plot:
             psi_vals = [self.calculate_psi(g, n, coefs) for n in n_values]
             ax2.plot(n_values, psi_vals, label=f'G={g}')
@@ -578,18 +647,24 @@ class ResearcherWindow:
         ax2.legend()
         ax2.grid(True)
 
-        plt.tight_layout()
+        fig.tight_layout()
+
         canvas = FigureCanvasTkAgg(fig, master=self.graph_frame)
         canvas.draw()
         canvas.get_tk_widget().pack(fill='both', expand=True)
+
+        self._current_figure = fig
+        self._current_canvas = canvas
 
     def update_performance(self, time_taken, memory_used, ops, points):
         self.perf_text.delete(1.0, tk.END)
         self.perf_text.insert(tk.END, "Оценка показателей экономичности:\n\n")
         self.perf_text.insert(tk.END, f"Время вычисления: {time_taken:.4f} сек.\n")
-        self.perf_text.insert(tk.END, f"Пиковое использование памяти: {memory_used / 1024:.2f} КБ\n")
+        self.perf_text.insert(tk.END,
+                             f"Пиковое использование памяти: {memory_used / 1024:.2f} КБ\n")
         self.perf_text.insert(tk.END, f"Количество точек моделирования: {points}\n")
-        self.perf_text.insert(tk.END, f"Общее количество арифметических операций: {ops}\n")
+        self.perf_text.insert(tk.END,
+                             f"Общее количество арифметических операций: {ops}\n")
 
     def export_excel(self):
         if self.df_result is None:
@@ -613,7 +688,6 @@ class ResearcherWindow:
 
             with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
 
-                # --- Лист 1: Параметры эксперимента (входные данные) ---
                 info_data = {
                     "Параметр": [
                         "Дата и время эксперимента",
@@ -638,35 +712,35 @@ class ResearcherWindow:
                         self.n_max.get(),
                         self.n_step.get(),
                         len(np.arange(float(self.g_min.get()),
-                                       float(self.g_max.get()) + float(self.g_step.get())/2,
-                                       float(self.g_step.get()))),
+                                      float(self.g_max.get()) + float(self.g_step.get()) / 2,
+                                      float(self.g_step.get()))),
                         len(np.arange(float(self.n_min.get()),
-                                       float(self.n_max.get()) + float(self.n_step.get())/2,
-                                       float(self.n_step.get()))),
+                                      float(self.n_max.get()) + float(self.n_step.get()) / 2,
+                                      float(self.n_step.get()))),
                         len(self.df_result)
                     ]
                 }
-                pd.DataFrame(info_data).to_excel(writer, sheet_name='Параметры эксперимента', index=False)
+                pd.DataFrame(info_data).to_excel(
+                    writer, sheet_name='Параметры эксперимента', index=False)
 
-                # --- Лист 2: Данные эксперимента (результаты) ---
-                self.df_result.to_excel(writer, sheet_name='Данные эксперимента', index=False)
+                self.df_result.to_excel(
+                    writer, sheet_name='Данные эксперимента', index=False)
 
-                # --- Лист 3: Производительность программы ---
                 perf_data = {
                     "Показатель": list(self.perf_metrics.keys()),
                     "Значение": list(self.perf_metrics.values())
                 }
-                pd.DataFrame(perf_data).to_excel(writer, sheet_name='Производительность', index=False)
+                pd.DataFrame(perf_data).to_excel(
+                    writer, sheet_name='Производительность', index=False)
 
-                # --- Лист 4: Коэффициенты модели (для воспроизводимости) ---
                 coefs = self.db.get_coefficients(self.polymers[idx][0])
                 coef_data = {
                     "Коэффициент": [f"a{i}" for i in range(11)],
                     "Значение": list(coefs)
                 }
-                pd.DataFrame(coef_data).to_excel(writer, sheet_name='Коэффициенты модели', index=False)
+                pd.DataFrame(coef_data).to_excel(
+                    writer, sheet_name='Коэффициенты модели', index=False)
 
-                # --- Красивое форматирование ширины колонок (опционально) ---
                 for sheet_name in writer.sheets:
                     worksheet = writer.sheets[sheet_name]
                     for column_cells in worksheet.columns:
@@ -686,12 +760,40 @@ class ResearcherWindow:
             messagebox.showerror("Ошибка", f"Не удалось сохранить файл: {e}")
 
     def logout(self):
+        # Явно уничтожаем canvas и очищаем фигуру, чтобы не было утечки
+        if self._current_canvas is not None:
+            try:
+                self._current_canvas.get_tk_widget().destroy()
+            except Exception:
+                pass
+            self._current_canvas = None
+
+        if self._current_figure is not None:
+            try:
+                self._current_figure.clear()
+            except Exception:
+                pass
+            self._current_figure = None
+
+        # Страховка: pyplot-реестр на случай, если что-то попало через другие пути
+        try:
+            plt.close('all')
+        except Exception:
+            pass
+
         self.root.destroy()
         self.login_root.deiconify()
 
 
 if __name__ == "__main__":
-    db = Database()
-    root = tk.Tk()
-    app = LoginWindow(root, db)
-    root.mainloop()
+    try:
+        db = Database()
+        root = tk.Tk()
+        app = LoginWindow(root, db)
+        root.mainloop()
+    finally:
+        # Гарантированно чистим pyplot при выходе из mainloop
+        try:
+            plt.close('all')
+        except Exception:
+            pass
