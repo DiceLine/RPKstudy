@@ -16,12 +16,6 @@ except NameError:
 DB_NAME = os.path.join(BASE_DIR, 'extruder_app.db')
 
 
-def calculate_psi(G, N, coefs):
-    a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10 = coefs
-    return (a0 + a1*G + a2*G**2 + a3*G**3 + a4*G**4 + a5*G**5 +
-            a6*N + a7*N**2 + a8*N**3 + a9*N**4 + a10*N**5)
-
-
 class Database:
     def __init__(self):
         self.conn = sqlite3.connect(DB_NAME)
@@ -167,27 +161,27 @@ class LoginWindow:
             AdminWindow(tk.Toplevel(), self.db, self.root)
         elif role == 'researcher':
             self.root.withdraw()
-            ResearcherWindow(tk.Toplevel(), self.root)
+            ResearcherWindow(tk.Toplevel(), self.db, self.root)
         else:
             messagebox.showerror("Ошибка", "Неверный логин или пароль")
 
 
 class AdminWindow:
     def __init__(self, root, db, login_root):
-            self.root = root
-            self.db = db
-            self.login_root = login_root
-            self.root.title("Панель администратора")
-            self.root.geometry("800x600")
-    
-            self.notebook = ttk.Notebook(root)
-            self.notebook.pack(fill='both', expand=True, padx=10, pady=10)
-    
-            self.create_users_tab()
-            self.create_coefs_tab()
-            self.create_all_data_tab()
-    
-            ttk.Button(root, text="Выйти", command=self.logout).pack(pady=5)
+        self.root = root
+        self.db = db
+        self.login_root = login_root
+        self.root.title("Панель администратора")
+        self.root.geometry("800x600")
+
+        self.notebook = ttk.Notebook(root)
+        self.notebook.pack(fill='both', expand=True, padx=10, pady=10)
+
+        self.create_users_tab()
+        self.create_coefs_tab()
+        self.create_all_data_tab()
+
+        ttk.Button(root, text="Выйти", command=self.logout).pack(pady=5)
     
     def create_users_tab(self):
         frame = ttk.Frame(self.notebook)
@@ -398,60 +392,162 @@ class AdminWindow:
 
 
 class ResearcherWindow:
-    def __init__(self, root, login_root):
+    def __init__(self, root, db, login_root):
         self.root = root
+        self.db = db
         self.login_root = login_root
         self.root.title("Исследовательский комплекс")
-        self.root.geometry("500x400")
-        ttk.Label(root, text="Параметры моделирования").pack(pady=10)
-        ttk.Button(root, text="Запустить (заглушка)").pack(pady=10)
-        ttk.Button(root, text="Выйти", command=self.logout).pack(pady=10)
+        self.root.geometry("1100x700")
+
+        # --- Левая панель: Ввод данных ---
+        input_frame = ttk.LabelFrame(root, text="Параметры исследования")
+        input_frame.pack(side='left', fill='y', padx=10, pady=10)
+
+        ttk.Label(input_frame, text="Тип полимера:").grid(row=0, column=0, pady=5, sticky='w')
+        self.poly_combo = ttk.Combobox(input_frame, state="readonly")
+        self.poly_combo.grid(row=0, column=1, pady=5)
+        self.polymers = self.db.get_polymers()
+        self.poly_combo['values'] = [p[1] for p in self.polymers]
+        if self.polymers: self.poly_combo.current(0)
+
+        # Параметры G
+        ttk.Label(input_frame, text="--- Расход сырья (G) ---").grid(row=1, column=0, columnspan=2, pady=10)
+        ttk.Label(input_frame, text="G min (кг/ч):").grid(row=2, column=0, sticky='w')
+        self.g_min = ttk.Entry(input_frame); self.g_min.insert(0, "2"); self.g_min.grid(row=2, column=1)
+
+        ttk.Label(input_frame, text="G max (кг/ч):").grid(row=3, column=0, sticky='w')
+        self.g_max = ttk.Entry(input_frame); self.g_max.insert(0, "10"); self.g_max.grid(row=3, column=1)
+
+        ttk.Label(input_frame, text="Шаг ΔG:").grid(row=4, column=0, sticky='w')
+        self.g_step = ttk.Entry(input_frame); self.g_step.insert(0, "0.5"); self.g_step.grid(row=4, column=1)
+
+        # Параметры N
+        ttk.Label(input_frame, text="--- Частота вращения (N) ---").grid(row=5, column=0, columnspan=2, pady=10)
+        ttk.Label(input_frame, text="N min (об/мин):").grid(row=6, column=0, sticky='w')
+        self.n_min = ttk.Entry(input_frame); self.n_min.insert(0, "40"); self.n_min.grid(row=6, column=1)
+
+        ttk.Label(input_frame, text="N max (об/мин):").grid(row=7, column=0, sticky='w')
+        self.n_max = ttk.Entry(input_frame); self.n_max.insert(0, "100"); self.n_max.grid(row=7, column=1)
+
+        ttk.Label(input_frame, text="Шаг ΔN:").grid(row=8, column=0, sticky='w')
+        self.n_step = ttk.Entry(input_frame); self.n_step.insert(0, "5"); self.n_step.grid(row=8, column=1)
+
+        ttk.Button(input_frame, text="Запустить моделирование", command=self.run_simulation).grid(row=9, column=0, columnspan=2, pady=20)
+        ttk.Button(input_frame, text="Выйти", command=self.logout).grid(row=10, column=0, columnspan=2, pady=10)
+
+        # --- Правая панель: Результаты ---
+        self.notebook = ttk.Notebook(root)
+        self.notebook.pack(side='right', fill='both', expand=True, padx=10, pady=10)
+
+        # Вкладка: Таблица
+        self.table_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.table_frame, text="Таблица данных")
+        self.tree = ttk.Treeview(self.table_frame, columns=("G", "N", "Psi"), show='headings')
+        self.tree.heading("G", text="G (кг/ч)")
+        self.tree.heading("N", text="N (об/мин)")
+        self.tree.heading("Psi", text="Ψ (Степень заполнения)")
+        self.tree.pack(fill='both', expand=True)
+
+        # Вкладка: Графики
+        self.graph_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.graph_frame, text="Графики")
+
+        # Вкладка: Производительность
+
+        # Вкладка: Экспорт
+
+        self.df_result = None
+
+    def validate_inputs(self):
+        try:
+            g_min = float(self.g_min.get())
+            g_max = float(self.g_max.get())
+            g_step = float(self.g_step.get())
+            n_min = float(self.n_min.get())
+            n_max = float(self.n_max.get())
+            n_step = float(self.n_step.get())
+
+            if g_min < 0 or g_max < 0 or n_min < 0 or n_max < 0:
+                raise ValueError("Значения не могут быть отрицательными")
+            if g_min == 0 or g_step <= 0 or n_step <= 0:
+                raise ValueError("Шаг должен быть больше нуля, G_min не может быть 0")
+            if g_min > g_max or n_min > n_max:
+                raise ValueError("Минимальное значение не может быть больше максимального")
+
+            return g_min, g_max, g_step, n_min, n_max, n_step
+        except ValueError as e:
+            messagebox.showerror("Ошибка ввода", f"Некорректные данные: {e}\nПроверьте, что введены числовые значения.")
+            return None
+
+    def calculate_psi(self, G, N, coefs):
+        a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10 = coefs
+        return (a0 + a1*G + a2*G**2 + a3*G**3 + a4*G**4 + a5*G**5 +
+                a6*N + a7*N**2 + a8*N**3 + a9*N**4 + a10*N**5)
+
+    def run_simulation(self):
+        params = self.validate_inputs()
+        if not params: return
+
+        g_min, g_max, g_step, n_min, n_max, n_step = params
+
+        idx = self.poly_combo.current()
+        poly_id = self.polymers[idx][0]
+        coefs = self.db.get_coefficients(poly_id)
+
+        g_values = np.arange(g_min, g_max + g_step/2, g_step)
+        n_values = np.arange(n_min, n_max + n_step/2, n_step)
+
+        data = []
+        for G in g_values:
+            for N in n_values:
+                psi = self.calculate_psi(G, N, coefs)
+                data.append((round(G, 2), round(N, 2), round(psi, 4)))
+
+        self.df_result = pd.DataFrame(data, columns=["G", "N", "Psi"])
+
+        self.update_table()
+        self.update_graphs(g_values, n_values, coefs)
+
+    def update_table(self):
+        for i in self.tree.get_children():
+            self.tree.delete(i)
+        for row in self.df_result.itertuples(index=False):
+            self.tree.insert("", "end", values=row)
+
+    def update_graphs(self, g_values, n_values, coefs):
+        for widget in self.graph_frame.winfo_children():
+            widget.destroy()
+
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
+
+        n_vals_to_plot = [n_values[0], n_values[len(n_values)//2], n_values[-1]]
+        for n in n_vals_to_plot:
+            psi_vals = [self.calculate_psi(g, n, coefs) for g in g_values]
+            ax1.plot(g_values, psi_vals, label=f'N={n}')
+        ax1.set_xlabel('Расход G (кг/ч)')
+        ax1.set_ylabel('Степень заполнения Ψ')
+        ax1.set_title('Зависимость Ψ от G')
+        ax1.legend()
+        ax1.grid(True)
+
+        g_vals_to_plot = [g_values[0], g_values[len(g_values)//2], g_values[-1]]
+        for g in g_vals_to_plot:
+            psi_vals = [self.calculate_psi(g, n, coefs) for n in n_values]
+            ax2.plot(n_values, psi_vals, label=f'G={g}')
+        ax2.set_xlabel('Частота N (об/мин)')
+        ax2.set_ylabel('Степень заполнения Ψ')
+        ax2.set_title('Зависимость Ψ от N')
+        ax2.legend()
+        ax2.grid(True)
+
+        plt.tight_layout()
+        canvas = FigureCanvasTkAgg(fig, master=self.graph_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill='both', expand=True)
 
     def logout(self):
         self.root.destroy()
         self.login_root.deiconify()
-
-
-def run_experiment(g_min, g_max, g_step, n_min, n_max, n_step, coefs):
-    """Перебор по сетке значений G и N, возвращает DataFrame."""
-    g_values = np.arange(g_min, g_max + g_step/2, g_step)
-    n_values = np.arange(n_min, n_max + n_step/2, n_step)
-
-    data = []
-    for G in g_values:
-        for N in n_values:
-            psi = calculate_psi(G, N, coefs)
-            data.append((round(G, 2), round(N, 2), round(psi, 4)))
-    return pd.DataFrame(data, columns=["G", "N", "Psi"])
-
-
-def plot_results(g_values, n_values, coefs):
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
-
-    # Зависимость Ψ от G при разных N
-    n_vals_to_plot = [n_values[0], n_values[len(n_values)//2], n_values[-1]]
-    for n in n_vals_to_plot:
-        psi_vals = [calculate_psi(g, n, coefs) for g in g_values]
-        ax1.plot(g_values, psi_vals, label=f'N={n}')
-    ax1.set_xlabel('Расход G (кг/ч)')
-    ax1.set_ylabel('Степень заполнения Ψ')
-    ax1.set_title('Зависимость Ψ от G')
-    ax1.legend()
-    ax1.grid(True)
-
-    # Зависимость Ψ от N при разных G
-    g_vals_to_plot = [g_values[0], g_values[len(g_values)//2], g_values[-1]]
-    for g in g_vals_to_plot:
-        psi_vals = [calculate_psi(g, n, coefs) for n in n_values]
-        ax2.plot(n_values, psi_vals, label=f'G={g}')
-    ax2.set_xlabel('Частота N (об/мин)')
-    ax2.set_ylabel('Степень заполнения Ψ')
-    ax2.set_title('Зависимость Ψ от N')
-    ax2.legend()
-    ax2.grid(True)
-
-    plt.tight_layout()
-    plt.show()
 
 
 def export_to_excel(df, filepath=f"{BASE_DIR}\\report_extruder.xlsx"):
@@ -463,18 +559,6 @@ def export_to_excel(df, filepath=f"{BASE_DIR}\\report_extruder.xlsx"):
 
 if __name__ == "__main__":
     db = Database()
-    
-    COEFS_POLY_MATERIAL = db.get_coefficients(db.get_polymers()[1][0])
-    df = run_experiment(2, 10, 0.5, 40, 100, 5, COEFS_POLY_MATERIAL)
-
-    g_values = np.arange(2, 10 + 0.25, 0.5)
-    n_values = np.arange(40, 100 + 2.5, 5)
-    plot_results(g_values, n_values, COEFS_POLY_MATERIAL)
-
-    print("Сгенерировать excel отчет? Y/N")
-    if input()[0].upper() == 'Y':
-        export_to_excel(df)
-
     root = tk.Tk()
     app = LoginWindow(root, db)
     root.mainloop()
